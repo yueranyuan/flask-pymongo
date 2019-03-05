@@ -105,9 +105,28 @@ class PyMongo(object):
     def __init__(self, app=None, uri=None, *args, **kwargs):
         self.cx = None
         self.db = None
+        self.current_uri = None
 
         if app is not None:
             self.init_app(app, uri, *args, **kwargs)
+        elif uri is not None:
+            self.init_db(uri=uri, *args, **kwargs)
+    
+    def init_db(self, uri, *args, **kwargs):
+        """Initialize this :class:`PyMongo` for use without flask app
+        """
+        args = tuple([uri] + list(args))
+
+        parsed_uri = uri_parser.parse_uri(uri)
+        database_name = parsed_uri["database"]
+
+        # Try to delay connecting, in case the app is loaded before forking, per
+        # http://api.mongodb.com/python/current/faq.html#is-pymongo-fork-safe
+        kwargs.setdefault("connect", False)
+
+        self.cx = MongoClient(*args, **kwargs)
+        if database_name:
+            self.db = self.cx[database_name]
 
     def init_app(self, app, uri=None, *args, **kwargs):
         """Initialize this :class:`PyMongo` for use.
@@ -137,23 +156,11 @@ class PyMongo(object):
         """
         if uri is None:
             uri = app.config.get("MONGO_URI", None)
-        if uri is not None:
-            args = tuple([uri] + list(args))
-        else:
+        if uri is None:
             raise ValueError(
                 "You must specify a URI or set the MONGO_URI Flask config variable",
             )
-
-        parsed_uri = uri_parser.parse_uri(uri)
-        database_name = parsed_uri["database"]
-
-        # Try to delay connecting, in case the app is loaded before forking, per
-        # http://api.mongodb.com/python/current/faq.html#is-pymongo-fork-safe
-        kwargs.setdefault("connect", False)
-
-        self.cx = MongoClient(*args, **kwargs)
-        if database_name:
-            self.db = self.cx[database_name]
+        self.init_db(uri=uri, *args, **kwargs)
 
         app.url_map.converters["ObjectId"] = BSONObjectIdConverter
 
